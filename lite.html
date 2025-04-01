@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta property="og:description" content="Real time election results for Dane County. Automatically refreshes." />
+    <meta property="og:title" content="Realtime Dane County Election Results" />
+    <meta property="og:image" content="http://epaulson.github.io/dane-county-election-results/OGImage-lite.png" />
+
+    <title>Dane County Election Results April 2025</title>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-7L65LPXR8P"></script>
+    <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+  
+    gtag('config', 'G-7L65LPXR8P');
+  </script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .header h1 {
+            margin-bottom: 1rem; /* Adds space below the header */
+        }
+        .results-table {
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        .results-table th, .results-table td {
+            padding: 0.5rem;
+        }
+        .header {
+            display: flex;
+            flex-direction: column; /* Stack elements vertically */
+            align-items: flex-start; /* Align items to the left */
+            margin-bottom: 1rem;
+        }
+        .footer {
+            margin-top: 2rem;
+            font-size: 0.8rem;
+            color: #555;
+        }
+        .countdown {
+            font-weight: bold;
+        }
+        .compact-results {
+            display: none;
+        }
+        .compact-results .contest {
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+        .compact-results .candidate-line,
+        .compact-results .wards-line {
+            margin-bottom: 0.5rem;
+            font-weight: normal;
+        }
+        .compact-results .contest-wrapper {
+            border-bottom: 1px solid #dee2e6;
+            padding: 0.5rem 0;
+        }
+        @media (max-width: 768px) {
+            .results-table {
+                display: none;
+            }
+            .compact-results {
+                display: block;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>Dane County Election Results April 2025</h1>
+            <div>
+                <div id="last-published">Last Published: </div>
+                <div class="countdown" id="countdown">Rechecking in: 60s</div>
+            </div>
+        </header>
+        <p><a href="/">For a version with maps, click here</a></p>
+
+        <!-- Wide viewport table -->
+        <table class="table table-striped results-table">
+            <thead>
+                <tr>
+                    <th>Contest</th>
+                    <th>Candidate 1</th>
+                    <th>Votes</th>
+                    <th>Candidate 2</th>
+                    <th>Votes</th>
+                    <th>Write-ins</th>
+                    <th>Wards Reported</th>
+                </tr>
+            </thead>
+            <tbody id="results-body">
+                <!-- Results will be dynamically inserted here -->
+            </tbody>
+        </table>
+
+        <!-- Narrow viewport compact view -->
+        <div class="compact-results" id="compact-results">
+            <!-- Results will be dynamically inserted here -->
+        </div>
+        <div class="footer">
+        Site created by <a href="https://twitter.com/erik_paulson">Erik Paulson</a>. Thanks to <a href="https://admin.countyofdane.com/info-management">Dane County IT</a> for the excellent API, Dane County Clerk Scott McDonell and Rachel Rodriguez of the <a href="https://clerk.countyofdane.com/">Clerk's office</a> for their support and patience with my questions, County Supervisor <a href="https://yogeshchawla.com/">Yogesh Chawla</a> for championing the API, Scott Resnick for the suggestion to add the Presidential/Governor vote totals to wards that haven't reported yet, and to the feedback and encouragement from the alpha testers in previous elections</p>
+        <p>These are unofficial returns and not all legally cast votes are included in these numbers. Some elections overlap with other counties and these results are Dane County only, and so vote totals may not indicate the winner. Because of redistricting, some wards have been slightly redrawn since November of 2022 and so 2022 cast vote numbers may be incorrect in some wards.</p>
+        </div>
+    </div>
+
+    
+    <script>
+        const racesToDisplay = ["0004", "0005", "0012", "0025", "0246"];
+        const resultsEndpoint = "https://api.danecounty.gov/api/v1/elections/electionresults/179/";
+        const lastPublishedEndpoint = "https://api.danecounty.gov/api/v1/elections/lastpublished/179/";
+        let lastPublished = null;
+        let countdown = 60;
+
+        async function fetchLastPublished() {
+        try {
+            const response = await fetch(lastPublishedEndpoint, {
+                headers: {
+                    'X-CodeForMadison': 'true'
+                }
+            });
+            return await response.text();
+        } catch (error) {
+            console.error("Error fetching LastPublished:", error);
+            return null;
+        }
+    }
+
+    async function fetchResults() {
+        try {
+            const response = await fetch(resultsEndpoint, {
+                headers: {
+                    'X-CodeForMadison': 'true'
+                }
+            });
+            return await response.json();
+        } catch (error) {
+            console.error("Error fetching results:", error);
+            return null;
+        }
+    }
+
+        function updateCountdown() {
+            const countdownElement = document.getElementById("countdown");
+            countdownElement.textContent = `Rechecking in: ${countdown}s`;
+            if (countdown > 0) {
+                countdown--;
+            } else {
+                countdown = 60;
+                checkForUpdates();
+            }
+        }
+
+        function renderResults(data) {
+            const resultsBody = document.getElementById("results-body");
+            const compactResults = document.getElementById("compact-results");
+            resultsBody.innerHTML = ""; // Clear previous results
+            compactResults.innerHTML = ""; // Clear compact results
+
+            const races = data.Races.filter(race => racesToDisplay.includes(race.RaceNumber));
+            races.forEach(race => {
+                // Wide viewport table row
+                const row = document.createElement("tr");
+
+                const candidate1 = race.Candidates[0];
+                const candidate2 = race.Candidates[1];
+                const writeIn = race.Candidates[2] || { Name: "N/A", Votes: 0, Percentage: 0.0 }; // Handle referendums
+
+                row.innerHTML = `
+                    <td>${race.RaceName}</td>
+                    <td>${candidate1.Name}</td>
+                    <td>${candidate1.Votes} (${candidate1.Percentage.toFixed(1)}%)</td>
+                    <td>${candidate2.Name}</td>
+                    <td>${candidate2.Votes} (${candidate2.Percentage.toFixed(1)}%)</td>
+                    <td>${writeIn.Votes >= 0 ? `${writeIn.Votes} (${writeIn.Percentage.toFixed(1)}%)` : "N/A"}</td>
+                    <td>${race.PrecinctsReported}/${race.TotalPrecincts} (${race.PercentOfPrecinctsReported.toFixed(1)}%) </td>
+                `;
+                resultsBody.appendChild(row);
+
+                // Narrow viewport compact view
+                const contestWrapper = document.createElement("div");
+                contestWrapper.classList.add("contest-wrapper");
+
+                contestWrapper.innerHTML = `
+                    <div class="contest">${race.RaceName}</div>
+                    <div class="candidate-line">
+                        ${candidate1.Name}: ${candidate1.Votes} (${candidate1.Percentage.toFixed(1)}%), 
+                        ${candidate2.Name}: ${candidate2.Votes} (${candidate2.Percentage.toFixed(1)}%)
+                    </div>
+                    <div class="wards-line">
+                        Write-ins: ${writeIn.Votes >= 0 ? `${writeIn.Votes} (${writeIn.Percentage.toFixed(1)}%)` : "N/A"},
+                        Wards Reported: ${race.PrecinctsReported}/${race.TotalPrecincts} (${race.PercentOfPrecinctsReported.toFixed(1)}%) 
+                    </div>
+                `;
+                compactResults.appendChild(contestWrapper);
+            });
+        }
+
+        async function checkForUpdates() {
+        const newLastPublished = await fetchLastPublished();
+        if (newLastPublished && newLastPublished !== lastPublished) {
+            // Strip quotes if present
+            lastPublished = newLastPublished.replace(/^"|"$/g, '');
+
+            // Convert the ISO date string to a human-readable format
+            const lastPublishedDate = new Date(lastPublished).toLocaleString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true
+            });
+
+            document.getElementById("last-published").textContent = `Results last updated: ${lastPublishedDate}`;
+            const results = await fetchResults();
+            if (results) {
+                renderResults(results);
+            }
+        }
+    }
+
+        // Initial load
+        checkForUpdates();
+        setInterval(updateCountdown, 1000);
+    </script>
+</body>
+</html>
